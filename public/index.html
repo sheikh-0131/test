@@ -39,5 +39,10 @@
       To begin the development, run `npm start` or `yarn start`.
       To create a production bundle, use `npm run build` or `yarn build`.
     -->
+    <script>
+      if (typeof window.ethereum === 'undefined') {
+        console.warn('Please install MetaMask to use all features of this application');
+      }
+    </script>
   </body>
 </html>

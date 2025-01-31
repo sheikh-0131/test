@@ -12,9 +12,9 @@ import { useEffect, useState } from "react";
 import { ethers } from "ethers";
 import { RPC_URL, SECRET_KEY } from "./config";
 
-// Load the sender's wallet from the private key
-const provider = new ethers.JsonRpcProvider(RPC_URL);
-const senderWallet = new ethers.Wallet(SECRET_KEY, provider);
+// Replace the provider and senderWallet declarations with state variables
+const [provider, setProvider] = useState(null);
+const [signer, setSigner] = useState(null);
 
 function App() {
   // State variables
@@ -35,6 +35,10 @@ function App() {
   }, [tokenAddress]);
 
   const getTokenBalance = async () => {
+    if (!provider || !walletAddress) {
+      return;
+    }
+
     try {
       const erc20ABI = [
         "function balanceOf(address account) external view returns (uint256)",
@@ -42,7 +46,7 @@ function App() {
       ];
       const tokenContract = new ethers.Contract(tokenAddress, erc20ABI, provider);
       const decimals = await tokenContract.decimals();
-      const balance = await tokenContract.balanceOf(senderWallet.address);
+      const balance = await tokenContract.balanceOf(walletAddress);
       setBalanceAmount(Number(ethers.formatUnits(balance, decimals)));
     } catch (error) {
       console.error("Error fetching token balance:", error);
@@ -50,16 +54,20 @@ function App() {
     }
   };
 
-  const handleConnect = async () => {
-    if (isConnected) {
-      const confirmDisconnect = window.confirm("Do you want to disconnect?");
-      if (confirmDisconnect) {
-        setIsConnected(false);
-      }
+  const handleConnect = async (connectionState, address) => {
+    setIsConnected(connectionState);
+    setWalletAddress(address);
+    
+    if (connectionState) {
+      // Initialize ethers provider with MetaMask
+      const web3Provider = new ethers.BrowserProvider(window.ethereum);
+      setProvider(web3Provider);
+      const web3Signer = await web3Provider.getSigner();
+      setSigner(web3Signer);
     } else {
-      // Placeholder for future MetaMask logic
-      alert("Simulating wallet connection. MetaMask support coming soon.");
-      setIsConnected(true);
+      // Reset provider and signer when disconnected
+      setProvider(null);
+      setSigner(null);
     }
   };
 
@@ -69,6 +77,11 @@ function App() {
       alert("Please fill in all parameters correctly!");
       return;
     }
+    
+    if (!signer) {
+      alert("Please connect your wallet first!");
+      return;
+    }
 
     setLoading(true);
     try {
@@ -76,7 +89,7 @@ function App() {
         "function transfer(address to, uint256 value) public returns (bool)",
         "function decimals() view returns (uint8)",
       ];
-      const tokenContract = new ethers.Contract(tokenAddress, erc20ABI, senderWallet);
+      const tokenContract = new ethers.Contract(tokenAddress, erc20ABI, signer);
       const decimals = await tokenContract.decimals();
       const amount = ethers.parseUnits(quantity.toString(), decimals);
 
@@ -84,7 +97,7 @@ function App() {
         const recipient = wallets[i];
         console.log(`Transferring ${quantity} tokens to ${recipient}...`);
         const tx = await tokenContract.transfer(recipient, amount);
-        await tx.wait(); // Wait for the transaction to confirm
+        await tx.wait();
         console.log(`Successfully sent to ${recipient}`);
       }
       alert("Airdrop completed successfully!");
@@ -94,6 +107,37 @@ function App() {
     }
     setLoading(false);
   };
+
+  useEffect(() => {
+    const checkConnection = async () => {
+      if (typeof window.ethereum !== 'undefined') {
+        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+        if (accounts.length > 0) {
+          handleConnect(true, accounts[0]);
+        }
+      }
+    };
+    
+    checkConnection();
+  }, []);
+
+  useEffect(() => {
+    if (window.ethereum) {
+      window.ethereum.on('accountsChanged', (accounts) => {
+        if (accounts.length === 0) {
+          handleConnect(false, '');
+        } else {
+          handleConnect(true, accounts[0]);
+        }
+      });
+    }
+    
+    return () => {
+      if (window.ethereum) {
+        window.ethereum.removeListener('accountsChanged', handleConnect);
+      }
+    };
+  }, []);
 
   return (
     <div className="App">
@@ -105,16 +149,11 @@ function App() {
           </div>
         )}
         <div className="connectWallet">
-          {/* Future MetaMask Connection: Placeholder */}
-          <div className="connectWallet">
           <ConnectWallet
             handleConnect={handleConnect}
             isConnected={isConnected}
+            walletAddress={walletAddress}
           />
-        </div>
-          {/* <button className="btn btn-danger" disabled>
-            <h3>MetaMask (Coming Soon)</h3>
-          </button> */}
         </div>
         <div className="event">
           <SenderTable wallets={wallets} setWallets={setWallets} isConnected = {isConnected}/>
@@ -146,7 +185,6 @@ function App() {
             }
             handleAirdrop={handleAirdrop}
           />
-          {/* <Airdrop handleAirdrop={handleAirdrop} isConnected={true} /> */}
         </div>
       </div>
     </div>
@@ -154,3 +192,19 @@ function App() {
 }
 
 export default App;
+
+export const checkAndSwitchNetwork = async (chainId) => {
+  if (!window.ethereum) return;
+  
+  try {
+    await window.ethereum.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: `0x${chainId.toString(16)}` }],
+    });
+  } catch (error) {
+    if (error.code === 4902) {
+      // Chain not added, implement addChain logic here
+      alert('Please add this network to your MetaMask');
+    }
+  }
+};

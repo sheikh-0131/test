@@ -1,14 +1,14 @@
-import React, { useState } from "react";
+import React from "react";
 import Form from "react-bootstrap/Form";
 import InputGroup from "react-bootstrap/InputGroup";
 // import { toast } from "react-toastify";
 import { Alert } from "../Toast/Toast";
 import "./Transfer.css";
+import Spinner from 'react-bootstrap/Spinner';
 // import axios from "axios";
 // import { API_URL } from "../config";
 
-const Transfer = (props) => {
-  const { quantity, setQuantity, totalQuantity, balanceAmount } = props;
+const Transfer = ({ quantity, setQuantity, totalQuantity, balanceAmount, loading }) => {
   return (
     <div className="eth_transfer">
       <div className="_ethamount">
@@ -20,9 +20,10 @@ const Transfer = (props) => {
             aria-label="Large"
             aria-describedby="inputGroup-sizing-sm"
             type="number"
-            placeholder="input per quatity"
+            placeholder="input per quantity"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
+            disabled={loading}
           />
         </InputGroup>
       </div>
@@ -34,10 +35,19 @@ const Transfer = (props) => {
               : { color: "green" }
           }
         >
-          Total :{" "}
-          {balanceAmount <= totalQuantity
-            ? `${totalQuantity} - insufficient!`
-            : totalQuantity}
+          {loading ? (
+            <div className="d-flex align-items-center">
+              <Spinner animation="border" size="sm" className="me-2" />
+              Processing Transfers...
+            </div>
+          ) : (
+            <>
+              Total: {" "}
+              {balanceAmount <= totalQuantity
+                ? `${totalQuantity} - insufficient!`
+                : totalQuantity}
+            </>
+          )}
         </h4>
       </div>
       <Alert />

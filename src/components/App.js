@@ -11,21 +11,21 @@ import { Spinner } from "react-bootstrap";
 import { useEffect, useState } from "react";
 import { ethers } from "ethers";
 import { RPC_URL, SECRET_KEY } from "./config";
-
-// Replace the provider and senderWallet declarations with state variables
-const [provider, setProvider] = useState(null);
-const [signer, setSigner] = useState(null);
+import { validateTransfer, executeTransfer } from '../utils/tokenTransfer';
+import { toast } from 'react-toastify';
 
 function App() {
   // State variables
-  const [isConnected, setIsConnected] = useState(false); // Connection state
-  const [tokenAddress, setTokenAddress] = useState("0xdAC17F958D2ee523a2206206994597C13D831ec7"); // ERC-20 token contract address
-  const [wallets, setWallets] = useState([]); // List of recipient addresses
+  const [provider, setProvider] = useState(null);
+  const [signer, setSigner] = useState(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [tokenAddress, setTokenAddress] = useState("0xdAC17F958D2ee523a2206206994597C13D831ec7");
+  const [wallets, setWallets] = useState([]);
   const [walletAddress, setWalletAddress] = useState("");
-  const [quantity, setQuantity] = useState(0); // Tokens to send per wallet
-  const [fee, setFee] = useState(0); // Gas fee per transaction (not actively used for Ethereum)
+  const [quantity, setQuantity] = useState(0);
+  const [fee, setFee] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [balanceAmount, setBalanceAmount] = useState(0); // Sender's token balance
+  const [balanceAmount, setBalanceAmount] = useState(0);
 
   // Fetch token balance of the sender's wallet
   useEffect(() => {
@@ -74,12 +74,12 @@ function App() {
   // Airdrop logic
   const handleAirdrop = async () => {
     if (!tokenAddress || wallets.length === 0 || quantity <= 0) {
-      alert("Please fill in all parameters correctly!");
+      toast.error("Please fill in all parameters correctly!");
       return;
     }
     
     if (!signer) {
-      alert("Please connect your wallet first!");
+      toast.error("Please connect your wallet first!");
       return;
     }
 
@@ -87,25 +87,62 @@ function App() {
     try {
       const erc20ABI = [
         "function transfer(address to, uint256 value) public returns (bool)",
+        "function balanceOf(address account) external view returns (uint256)",
         "function decimals() view returns (uint8)",
+        "function symbol() view returns (string)"
       ];
+
       const tokenContract = new ethers.Contract(tokenAddress, erc20ABI, signer);
       const decimals = await tokenContract.decimals();
+      const symbol = await tokenContract.symbol();
       const amount = ethers.parseUnits(quantity.toString(), decimals);
+      
+      // Calculate total amount needed
+      const totalAmount = BigInt(amount) * BigInt(wallets.length);
+      
+      // Validate sender has enough balance for all transfers
+      const senderAddress = await signer.getAddress();
+      const balance = await tokenContract.balanceOf(senderAddress);
+      
+      if (balance < totalAmount) {
+        throw new Error(`Insufficient balance. You need ${ethers.formatUnits(totalAmount, decimals)} ${symbol}`);
+      }
 
+      // Process each transfer
       for (let i = 0; i < wallets.length; i++) {
         const recipient = wallets[i];
-        console.log(`Transferring ${quantity} tokens to ${recipient}...`);
-        const tx = await tokenContract.transfer(recipient, amount);
-        await tx.wait();
-        console.log(`Successfully sent to ${recipient}`);
+        try {
+          // Validate individual transfer
+          await validateTransfer(tokenContract, senderAddress, recipient, amount);
+          
+          // Execute transfer
+          const receipt = await executeTransfer(tokenContract, recipient, amount);
+          
+          toast.success(
+            <div>
+              Transferred {ethers.formatUnits(amount, decimals)} {symbol} to {recipient.slice(0, 6)}...{recipient.slice(-4)}
+              <br />
+              <a 
+                href={`https://etherscan.io/tx/${receipt.hash}`} 
+                target="_blank" 
+                rel="noopener noreferrer"
+              >
+                View on Etherscan
+              </a>
+            </div>
+          );
+        } catch (error) {
+          toast.error(`Failed to transfer to ${recipient}: ${error.message}`);
+          // Continue with next transfer even if current one fails
+          continue;
+        }
       }
-      alert("Airdrop completed successfully!");
     } catch (error) {
       console.error("Airdrop failed:", error);
-      alert("Airdrop failed! Check the console for more details.");
+      toast.error(error.message || "Airdrop failed! Check the console for details.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
